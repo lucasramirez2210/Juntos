@@ -148,7 +148,8 @@ body{font-family:'Jost',sans-serif;background:var(--bg);color:var(--t1);-webkit-
 .ctext{font-size:14px;flex:1;color:var(--t1)}
 .who{font-size:11px;padding:2px 8px;border-radius:10px;font-weight:500;flex-shrink:0}
 .wp1{background:#E8EEE0;color:#3A5A2A}.wp2{background:#EEE0EC;color:#6A2A5A}.wboth{background:#EEE8D8;color:#6A4A1A}
-.dh{display:flex;align-items:center;gap:10px;margin:14px 0 8px}
+.dh{display:flex;align-items:center;gap:10px;margin:14px 0 8px;flex-wrap:wrap}
+input[type='date']{color-scheme:light;font-family:'Jost',sans-serif}
 .dbadge{background:var(--acc);color:white;font-size:11px;font-weight:600;padding:3px 10px;border-radius:20px}
 .dname{font-size:13px;color:var(--t2);font-weight:500}
 .act{display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid var(--div)}
@@ -405,8 +406,58 @@ function App(){
   const addReact=(mid,el)=>{upd(activeTrip,t=>({...t,memories:t.memories.map(m=>m.id===mid?{...m,reactions:{...m.reactions,heart:(m.reactions.heart||0)+1}}:m)}));if(el)mountH(el,`m${mid}`);};
 
   // TRIPS
-  const saveTrip=()=>{if(!form.name)return;const nt={id:Date.now(),name:form.name,dates:form.dates||"Por definir",days:parseInt(form.days)||0,budget:{total:parseInt(form.budget)||0,spent:0},itinerary:[],checklist:[],expenses:[],places:[],memories:[]};const next=[...trips,nt];setTrips(next);setActiveTrip(nt.id);cloud(next,profile);close();};
+  const saveTrip=()=>{
+    if(!form.name)return;
+    let datesStr="Por definir", days=0;
+    if(form.dateStart&&form.dateEnd){
+      const s=new Date(form.dateStart),e=new Date(form.dateEnd);
+      if(e<s){setForm({...form,dateError:"La fecha de fin no puede ser anterior al inicio."});return;}
+      days=Math.round((e-s)/(1000*60*60*24))+1;
+      const fmt=d=>d.toLocaleDateString("es-AR",{day:"numeric",month:"short",year:"numeric"});
+      datesStr=`${fmt(s)} – ${fmt(e)}`;
+    } else if(form.dateStart){
+      const s=new Date(form.dateStart);
+      datesStr=s.toLocaleDateString("es-AR",{day:"numeric",month:"short",year:"numeric"});
+    }
+    const nt={id:Date.now(),name:form.name,dates:datesStr,days,budget:{total:parseInt(form.budget)||0,spent:0},itinerary:[],checklist:[],expenses:[],places:[],memories:[]};
+    const next=[...trips,nt];setTrips(next);setActiveTrip(nt.id);cloud(next,profile);close();
+  };
   const delTrip=()=>{const next=trips.filter(t=>t.id!==activeTrip);setTrips(next);setActiveTrip(next[0]?.id||null);cloud(next,profile);setConfirmDel(false);};
+
+  // ITINERARY — días
+  const saveDay=()=>{
+    if(!form.name&&!form.editId){setForm({...form,dayError:"Poné un nombre al día."});return;}
+    if(form.editId){
+      upd(activeTrip,t=>({...t,itinerary:t.itinerary.map(d=>d.id===form.editId?{...d,name:form.name||d.name}:d)}));
+    } else {
+      const order=(trip?.itinerary?.length||0);
+      upd(activeTrip,t=>({...t,itinerary:[...t.itinerary,{id:Date.now(),name:form.name||`Día ${order+1}`,order,activities:[]}]}));
+    }
+    close();
+  };
+  const delDay=(dayId)=>{
+    const day=trip?.itinerary?.find(d=>d.id===dayId);
+    if(day?.activities?.length>0){if(!window.confirm(`¿Eliminar "${day.name}" y sus ${day.activities.length} actividad(es)?`))return;}
+    upd(activeTrip,t=>({...t,itinerary:t.itinerary.filter(d=>d.id!==dayId)}));
+  };
+
+  // ITINERARY — actividades
+  const saveActivity=()=>{
+    if(!form.actName||!form.dayId){return;}
+    if(form.editId){
+      upd(activeTrip,t=>({...t,itinerary:t.itinerary.map(d=>d.id===form.dayId
+        ?{...d,activities:d.activities.map(a=>a.id===form.editId?{...a,name:form.actName,time:form.actTime||"",type:form.actType||"visit",note:form.actNote||""}:a)}
+        :d)}));
+    } else {
+      upd(activeTrip,t=>({...t,itinerary:t.itinerary.map(d=>d.id===form.dayId
+        ?{...d,activities:[...d.activities,{id:Date.now(),name:form.actName,time:form.actTime||"",type:form.actType||"visit",note:form.actNote||""}]}
+        :d)}));
+    }
+    close();
+  };
+  const delActivity=(dayId,actId)=>{
+    upd(activeTrip,t=>({...t,itinerary:t.itinerary.map(d=>d.id===dayId?{...d,activities:d.activities.filter(a=>a.id!==actId)}:d)}));
+  };
 
   const open=(type,prefill={})=>{setForm(prefill);setModal(type);};
   const close=()=>setModal(null);
@@ -456,7 +507,7 @@ function App(){
             </div>
           </section>
           <main className="content" key={tab}>
-            {tab==="plan"&&<PlanTab trip={trip} togCheck={togCheck} delCheck={delCheck} open={open} p1={p1} p2={p2}/>}
+            {tab==="plan"&&<PlanTab trip={trip} togCheck={togCheck} delCheck={delCheck} open={open} p1={p1} p2={p2} saveDay={saveDay} delDay={delDay} saveActivity={saveActivity} delActivity={delActivity}/>}
             {tab==="places"&&<PlacesTab trip={trip} togPlace={togPlace} delPlace={delPlace} open={open}/>}
             {tab==="budget"&&<BudgetTab trip={trip} pct={pct} totalSpent={totalSpent} delExp={delExp} open={open} p1={p1} p2={p2}/>}
             {tab==="memories"&&<MemTab trip={trip} addReact={addReact} mountH={mountH} delMem={delMem} open={open} p1={p1} p2={p2}/>}
@@ -478,6 +529,8 @@ function App(){
       {modal==="check"&&<CheckModal form={form} sf={setForm} onSave={saveCheck} onClose={close} p1={p1} p2={p2}/>}
       {modal==="trip"&&<TripModal form={form} sf={setForm} onSave={saveTrip} onClose={close}/>}
       {modal==="expense"&&<ExpModal form={form} sf={setForm} onSave={saveExp} onClose={close} p1={p1} p2={p2}/>}
+      {modal==="day"&&<DayModal form={form} sf={setForm} onSave={saveDay} onClose={close}/>}
+      {modal==="activity"&&<ActivityModal form={form} sf={setForm} onSave={saveActivity} onClose={close}/>}
     </div></div>}
 
     {confirmDel&&<div className="overlay" onClick={()=>setConfirmDel(false)}><div className="modal" onClick={e=>e.stopPropagation()}>
@@ -595,29 +648,58 @@ function Onboarding({onComplete}){
 }
 
 // ── TABS ──
-function PlanTab({trip,togCheck,delCheck,open,p1,p2}){
+function PlanTab({trip,togCheck,delCheck,open,p1,p2,saveDay,delDay,saveActivity,delActivity}){
   const wl=w=>w==="both"?"Ambos":w==="p1"?p1:p2;
-  return(<div className="tc fu"><Sec title="Antes de partir"><div className="card">
-    {trip.checklist.length===0&&<p style={{textAlign:"center",color:"var(--t3)",fontSize:14,padding:"8px 0"}}>Sin ítems aún</p>}
-    {trip.checklist.map(i=><div key={i.id} className={`crow ${i.done?"done":""}`}>
-      <div className={`cb ${i.done?"ck":""}`} onClick={()=>togCheck(i.id)}>{i.done&&"✓"}</div>
-      <span className="ctext" onClick={()=>togCheck(i.id)}>{i.text}</span>
-      <span className={`who w${i.who}`}>{wl(i.who)}</span>
-      <button className="iact" onClick={()=>open("check",{editId:i.id,text:i.text,who:i.who})}><IEdit/></button>
-      <button className="iact red" onClick={()=>delCheck(i.id)}><ITrash/></button>
-    </div>)}
-  </div><AddBtn onClick={()=>open("check")}>Agregar ítem</AddBtn></Sec>
-  <Sec title="Itinerario">
-    {trip.itinerary.length===0
-      ?<div className="card" style={{textAlign:"center",color:"var(--t3)",fontSize:14,padding:"16px"}}>Sin actividades aún</div>
-      :trip.itinerary.map(day=><div key={day.day}>
-        <div className="dh"><span className="dbadge">Día {day.day}</span><span className="dname">{day.dayName}</span></div>
-        <div className="card">{day.activities.map((a,i)=><div key={i} className="act">
-          <span className="atime">{a.time}</span><span className={`adot t-${a.type}`}/>
-          <div><div className="aname">{a.name}</div>{a.note&&<div className="anote">{a.note}</div>}</div>
-        </div>)}</div>
+  const sortedDays=[...(trip.itinerary||[])].sort((a,b)=>a.order-b.order);
+  const sortActs=acts=>[...acts].sort((a,b)=>{
+    if(!a.time&&!b.time)return 0;if(!a.time)return 1;if(!b.time)return -1;
+    return a.time.localeCompare(b.time);
+  });
+  const TYPE_LABEL={"food":"Comida","visit":"Visita","hotel":"Hotel","activity":"Actividad"};
+  return(<div className="tc fu">
+    <Sec title="Antes de partir"><div className="card">
+      {trip.checklist.length===0&&<p style={{textAlign:"center",color:"var(--t3)",fontSize:14,padding:"8px 0"}}>Sin ítems aún</p>}
+      {trip.checklist.map(i=><div key={i.id} className={`crow ${i.done?"done":""}`}>
+        <div className={`cb ${i.done?"ck":""}`} onClick={()=>togCheck(i.id)}>{i.done&&"✓"}</div>
+        <span className="ctext" onClick={()=>togCheck(i.id)}>{i.text}</span>
+        <span className={`who w${i.who}`}>{wl(i.who)}</span>
+        <button className="iact" onClick={()=>open("check",{editId:i.id,text:i.text,who:i.who})}><IEdit/></button>
+        <button className="iact red" onClick={()=>delCheck(i.id)}><ITrash/></button>
       </div>)}
-  </Sec></div>);
+    </div><AddBtn onClick={()=>open("check")}>Agregar ítem</AddBtn></Sec>
+
+    <Sec title="Itinerario">
+      <button className="add-pri" style={{marginBottom:14}} onClick={()=>open("day")}>+ Agregar día</button>
+      {sortedDays.length===0&&<div className="card" style={{textAlign:"center",color:"var(--t3)",fontSize:14,padding:"20px"}}>
+        <div style={{marginBottom:6}}><IMap/></div>
+        Sin días aún — agregá el primero
+      </div>}
+      {sortedDays.map((day,di)=><div key={day.id} style={{marginBottom:16}}>
+        <div className="dh">
+          <span className="dbadge">Día {di+1}</span>
+          <span className="dname">{day.name}</span>
+          <div style={{marginLeft:"auto",display:"flex",gap:2}}>
+            <button className="iact" onClick={()=>open("day",{editId:day.id,name:day.name})}><IEdit/></button>
+            <button className="iact red" onClick={()=>delDay(day.id)}><ITrash/></button>
+          </div>
+        </div>
+        <div className="card">
+          {sortActs(day.activities).length===0&&<p style={{textAlign:"center",color:"var(--t3)",fontSize:13,padding:"8px 0"}}>Sin actividades — agregá la primera</p>}
+          {sortActs(day.activities).map(a=><div key={a.id} className="act">
+            <span className="atime">{a.time||"–"}</span>
+            <span className={`adot t-${a.type}`}/>
+            <div style={{flex:1}}>
+              <div className="aname">{a.name}</div>
+              {a.note&&<div className="anote">{a.note}</div>}
+            </div>
+            <button className="iact" onClick={()=>open("activity",{editId:a.id,dayId:day.id,actName:a.name,actTime:a.time,actType:a.type,actNote:a.note})}><IEdit/></button>
+            <button className="iact red" onClick={()=>delActivity(day.id,a.id)}><ITrash/></button>
+          </div>)}
+          <button className="addbtn" style={{marginTop:8}} onClick={()=>open("activity",{dayId:day.id})}><IPlus/>Agregar actividad</button>
+        </div>
+      </div>)}
+    </Sec>
+  </div>);
 }
 
 function PlacesTab({trip,togPlace,delPlace,open}){
@@ -770,13 +852,68 @@ function CheckModal({form,sf,onSave,onClose,p1,p2}){
 }
 
 function TripModal({form,sf,onSave,onClose}){
+  const calcDays=()=>{
+    if(!form.dateStart||!form.dateEnd)return null;
+    const s=new Date(form.dateStart),e=new Date(form.dateEnd);
+    if(e<s)return null;
+    return Math.round((e-s)/(1000*60*60*24))+1;
+  };
+  const days=calcDays();
+  const today=new Date().toISOString().split("T")[0];
   return(<>
     <h2>Nuevo viaje</h2>
     <F label="Destino"><input className="fi" placeholder="Mendoza, Bariloche, Roma…" value={form.name||""} onChange={e=>sf({...form,name:e.target.value})}/></F>
-    <F label="Fechas"><input className="fi" placeholder="14 – 18 Mar 2026" value={form.dates||""} onChange={e=>sf({...form,dates:e.target.value})}/></F>
-    <F label="Días"><input className="fi" type="number" inputMode="numeric" placeholder="5" value={form.days||""} onChange={e=>sf({...form,days:e.target.value})}/></F>
+    <div style={{display:"flex",gap:10}}>
+      <F label="Desde" style={{flex:1}}>
+        <input className="fi" type="date" min={today} value={form.dateStart||""} onChange={e=>sf({...form,dateStart:e.target.value,dateError:""})}/>
+      </F>
+      <F label="Hasta" style={{flex:1}}>
+        <input className="fi" type="date" min={form.dateStart||today} value={form.dateEnd||""} onChange={e=>sf({...form,dateEnd:e.target.value,dateError:""})}/>
+      </F>
+    </div>
+    {days&&<div style={{textAlign:"center",padding:"6px 12px",background:"rgba(176,120,72,.08)",borderRadius:10,fontSize:13,color:"var(--acc2)",marginBottom:4,marginTop:-6}}>
+      {days} día{days>1?"s":""} · {new Date(form.dateStart).toLocaleDateString("es-AR",{day:"numeric",month:"short"})} – {new Date(form.dateEnd).toLocaleDateString("es-AR",{day:"numeric",month:"short",year:"numeric"})}
+    </div>}
+    {form.dateError&&<p style={{color:"#C04040",fontSize:12,marginTop:-8,marginBottom:4}}>{form.dateError}</p>}
     <F label="Presupuesto ($)"><input className="fi" type="number" inputMode="numeric" placeholder="150000" value={form.budget||""} onChange={e=>sf({...form,budget:e.target.value})}/></F>
     <Btns onCancel={onClose} onSave={onSave} label="Crear viaje"/>
+  </>);
+}
+
+function DayModal({form,sf,onSave,onClose}){
+  const examples=["Llegada","Día de playa","Ciudad histórica","Montaña","Gastronomía","Día libre","Partida"];
+  return(<>
+    <h2>{form.editId?"Editar día":"Agregar día"}</h2>
+    <F label="Nombre del día">
+      <input className="fi" placeholder="Llegada, Día de playa, Ciudad histórica…" value={form.name||""} onChange={e=>sf({...form,name:e.target.value,dayError:""})}/>
+    </F>
+    <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:-6,marginBottom:14}}>
+      {examples.map(ex=><button key={ex} onClick={()=>sf({...form,name:ex})}
+        style={{padding:"4px 12px",borderRadius:20,border:"1px solid var(--brd)",background:form.name===ex?"rgba(176,120,72,.12)":"transparent",color:form.name===ex?"var(--acc2)":"var(--t3)",fontFamily:"'Jost',sans-serif",fontSize:12,cursor:"pointer"}}>
+        {ex}
+      </button>)}
+    </div>
+    {form.dayError&&<p style={{color:"#C04040",fontSize:12,marginBottom:8}}>{form.dayError}</p>}
+    <Btns onCancel={onClose} onSave={onSave} label={form.editId?"Guardar cambios":"Agregar día"}/>
+  </>);
+}
+
+function ActivityModal({form,sf,onSave,onClose}){
+  const types=[{id:"visit",label:"Visita",color:"#5A8A6A"},{id:"food",label:"Comida",color:"#C47858"},{id:"hotel",label:"Hotel",color:"#8A7050"},{id:"activity",label:"Actividad",color:"#7A5A8A"}];
+  return(<>
+    <h2>{form.editId?"Editar actividad":"Agregar actividad"}</h2>
+    <F label="Nombre"><input className="fi" placeholder="Coliseo, Cena en el puerto, Check-in…" value={form.actName||""} onChange={e=>sf({...form,actName:e.target.value})}/></F>
+    <F label="Tipo">
+      <div style={{display:"flex",gap:8,marginTop:4}}>
+        {types.map(t=><button key={t.id} onClick={()=>sf({...form,actType:t.id})}
+          style={{flex:1,padding:"8px 4px",borderRadius:10,border:`1.5px solid ${(form.actType||"visit")===t.id?t.color:"var(--brd)"}`,background:(form.actType||"visit")===t.id?`${t.color}18`:"transparent",color:(form.actType||"visit")===t.id?t.color:"var(--t3)",fontFamily:"'Jost',sans-serif",fontSize:11,cursor:"pointer",fontWeight:500}}>
+          {t.label}
+        </button>)}
+      </div>
+    </F>
+    <F label="Hora (opcional)"><input className="fi" type="time" value={form.actTime||""} onChange={e=>sf({...form,actTime:e.target.value})}/></F>
+    <F label="Nota (opcional)"><input className="fi" placeholder="Reservar con anticipación, llevar efectivo…" value={form.actNote||""} onChange={e=>sf({...form,actNote:e.target.value})}/></F>
+    <Btns onCancel={onClose} onSave={onSave} label={form.editId?"Guardar cambios":"Agregar"}/>
   </>);
 }
 
