@@ -419,8 +419,15 @@ function App(){
       const s=new Date(form.dateStart);
       datesStr=s.toLocaleDateString("es-AR",{day:"numeric",month:"short",year:"numeric"});
     }
-    const nt={id:Date.now(),name:form.name,dates:datesStr,days,budget:{total:parseInt(form.budget)||0,spent:0},itinerary:[],checklist:[],expenses:[],places:[],memories:[]};
-    const next=[...trips,nt];setTrips(next);setActiveTrip(nt.id);cloud(next,profile);close();
+    if(form.editId){
+      // Edit existing trip — preserve all data
+      const next=trips.map(t=>t.id===form.editId?{...t,name:form.name,dates:datesStr,days,budget:{...t.budget,total:parseInt(form.budget)||t.budget.total}}:t);
+      setTrips(next);cloud(next,profile);close();
+    } else {
+      // New trip
+      const nt={id:Date.now(),name:form.name,dates:datesStr,days,budget:{total:parseInt(form.budget)||0,spent:0},itinerary:[],checklist:[],expenses:[],places:[],memories:[]};
+      const next=[...trips,nt];setTrips(next);setActiveTrip(nt.id);cloud(next,profile);close();
+    }
   };
   const delTrip=()=>{const next=trips.filter(t=>t.id!==activeTrip);setTrips(next);setActiveTrip(next[0]?.id||null);cloud(next,profile);setConfirmDel(false);};
 
@@ -483,6 +490,11 @@ function App(){
         <div className="trow">
           {trips.map(t=><button key={t.id} className={`tchip ${t.id===activeTrip?"on":""}`} onClick={()=>setActiveTrip(t.id)}>{t.name}</button>)}
           <button className="tchip add" onClick={()=>open("trip")}><IPlus/> Nuevo</button>
+          {trip&&<button className="del-chip" style={{marginLeft:4}} onClick={()=>{
+            // Parse existing dates back to dateStart/dateEnd if possible
+            const t=trips.find(x=>x.id===activeTrip);
+            open("trip",{editId:t.id,name:t.name,budget:String(t.budget.total),dates:t.dates});
+          }}><IEdit/></button>}
           {trip&&<button className="del-chip" onClick={()=>setConfirmDel(true)}><ITrash/></button>}
         </div>
       </div>
@@ -574,7 +586,24 @@ function Onboarding({onComplete}){
   useKbFix();
 
   const handleNew=async()=>{setLoading(true);setError("");const id=await bCreate({trips:[],profile:{p1:p1.trim(),p2:p2.trim()},ts:Date.now()});setLoading(false);if(!id){setError("No se pudo conectar. Revisá tu internet.");return;}setCode(id);setStep(4);};
-  const handleJoin=async()=>{if(!pairInput.trim())return;setLoading(true);setError("");const d=await bRead(pairInput.trim());setLoading(false);if(!d){setError("Código no encontrado.");return;}onComplete({p1:p1.trim(),p2:d.profile?.p1||d.profile?.p2||"Tu pareja"},pairInput.trim());};
+  const [joinData,setJoinData]=useState(null); // {code, p1, p2} from found pair
+  const handleJoin=async()=>{
+    if(!pairInput.trim())return;
+    setLoading(true);setError("");
+    const d=await bRead(pairInput.trim());
+    setLoading(false);
+    if(!d){setError("Código no encontrado. Verificá que esté bien escrito.");return;}
+    const np1=d.profile?.p1||"Persona 1";
+    const np2=d.profile?.p2||"Persona 2";
+    setJoinData({code:pairInput.trim(),p1:np1,p2:np2});
+    setStep(5); // who are you?
+  };
+  const handlePickIdentity=(iAm)=>{
+    // iAm = "p1" or "p2" — swap names so "my name" is always p1 locally
+    const myName=iAm==="p1"?joinData.p1:joinData.p2;
+    const theirName=iAm==="p1"?joinData.p2:joinData.p1;
+    onComplete({p1:myName,p2:theirName,role:iAm},joinData.code);
+  };
   const copyCode=()=>{const done=()=>{setCopied(true);setTimeout(()=>setCopied(false),2500);};if(navigator.clipboard)navigator.clipboard.writeText(code).then(done);else{const t=document.createElement("textarea");t.value=code;document.body.appendChild(t);t.select();document.execCommand("copy");document.body.removeChild(t);done();}};
 
   return(
@@ -642,6 +671,19 @@ function Onboarding({onComplete}){
           Abre la app → Comenzar → ingresa su nombre → elige <em>"Unirme al espacio"</em> → pega este código.
         </div>
         <button className="cta" onClick={()=>onComplete({p1:p1.trim(),p2:p2.trim()},code)}>Entrar a la app →</button>
+      </div>}
+
+      {step===5&&joinData&&<div className="ob-c fad">
+        <div className="ob-mini">juntos</div>
+        <h2 className="ob-nt">¿Cuál sos vos?</h2>
+        <p className="ob-ns" style={{marginBottom:24}}>Encontramos el espacio de <strong style={{color:"var(--acc)"}}>{joinData.p1}</strong> y <strong style={{color:"var(--acc)"}}>{joinData.p2}</strong>. Elegí tu nombre para entrar correctamente.</p>
+        <button className="cta" style={{marginBottom:12}} onClick={()=>handlePickIdentity("p1")}>
+          Soy <strong style={{marginLeft:6}}>{joinData.p1}</strong>
+        </button>
+        <button className="cta" onClick={()=>handlePickIdentity("p2")}>
+          Soy <strong style={{marginLeft:6}}>{joinData.p2}</strong>
+        </button>
+        <button className="ob-back" onClick={()=>setStep(3)}>← Volver</button>
       </div>}
     </div>
   );
@@ -861,7 +903,7 @@ function TripModal({form,sf,onSave,onClose}){
   const days=calcDays();
   const today=new Date().toISOString().split("T")[0];
   return(<>
-    <h2>Nuevo viaje</h2>
+    <h2>{form.editId?"Editar viaje":"Nuevo viaje"}</h2>
     <F label="Destino"><input className="fi" placeholder="Mendoza, Bariloche, Roma…" value={form.name||""} onChange={e=>sf({...form,name:e.target.value})}/></F>
     <div style={{display:"flex",gap:10}}>
       <F label="Desde" style={{flex:1}}>
@@ -876,7 +918,7 @@ function TripModal({form,sf,onSave,onClose}){
     </div>}
     {form.dateError&&<p style={{color:"#C04040",fontSize:12,marginTop:-8,marginBottom:4}}>{form.dateError}</p>}
     <F label="Presupuesto ($)"><input className="fi" type="number" inputMode="numeric" placeholder="150000" value={form.budget||""} onChange={e=>sf({...form,budget:e.target.value})}/></F>
-    <Btns onCancel={onClose} onSave={onSave} label="Crear viaje"/>
+    <Btns onCancel={onClose} onSave={onSave} label={form.editId?"Guardar cambios":"Crear viaje"}/>
   </>);
 }
 
